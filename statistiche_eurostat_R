@@ -1,0 +1,75 @@
+##installo i pacchetti che mi interessano
+
+install.packages("lubridate", dependencies = TRUE)
+install.packages("eurostat") #Installo il pacchetto
+install.packages("dplyr") #Installo il pacchetto
+install.packages("ggplot2") #Installo il pacchetto
+library(eurostat) # richiamo il pacchetto
+library(dplyr) # richiamo il pacchetto
+library(lubridate) # richiamo il pacchetto
+library(ggplot2) # richiamo il pacchetto
+
+
+##cerco il codice della tabella che mi interessa
+query <- search_eurostat("age", type="table") #cerco le tabelle presenti attraverso una parola chiave
+query[1:30,1:4]
+
+#richiamo la tabella che mi interessa
+tabella_che_mi_interessa <- get_eurostat(id="nama_10r_3gdp", time_format = "date", filters = "none") %>%filter(time=="2017-01-01", unit=="PPS_HAB") #Scarico la tabella sui richiedenti asilo limitando il dato al 2017 NB: se volgio limitare all'italia, per es. filters = list(geo="IT"))
+tabella_che_mi_interessa <- select(tabella_che_mi_interessa, geo, values, time) #Seleziono solo le colonne che mi interessano
+tabella_che_mi_interessa <- tabella_che_mi_interessa %>% mutate(cat=cut_to_classes(values, n=5, decimals=1)) ## da usare se si vuole dividere un valore in classi per renderlo già pronto per la mappa
+tabella_che_mi_interessa <- label_eurostat(tabella_che_mi_interessa, lang = "en", fix_duplicated=TRUE, code="geo") ## aggiungo le label mantenendo i codici Geo
+
+#Unisco la tabella che mi interessa alla mappa
+mappa_europa <- get_eurostat_geospatial(output_class = "sf", resolution = "60", nuts_level = "3") # scarico le coordinate geografiche da eurostat NB: importante il NUTS level e la class (sf, df, spdf)
+mappa_che_mi_interessa <- left_join(mappa_europa, pil_procapite_pps_province,  by="geo") #Unisco il dataset con i dati sui richiedenti asilo e quello con i dati geografici
+
+##DATI GENERALI UE (coordinate geografiche, popolazione, pil)
+paesi_ue <- eu_countries #elenco paesi ue
+popolazione_ue_paesi <- get_eurostat(id="tps00001", time_format = "date", filters = "none") %>%filter(time=="2018-01-01")  %>% rename(popolazione=values) %>% select(geo, popolazione) #Scarico la tabella della popolazione Ue al 1 gennaio di un anno. ATTENZIONE AL FILTRO TEMPO
+pil_pro_capite_reale_Ue <- get_eurostat(id="sdg_08_10", time_format = "date", filters = "none") %>%filter(time=="2018-01-01") #Scarico la tabella del Pil reale nella Ue. ATTENZIONE AL FILTRO TEMPO
+pil_procapite_pps_province <- get_eurostat(id="nama_10r_3gdp", time_format = "date", filters = "none") %>%filter(time=="2017-01-01", unit=="PPS_HAB") #Scarico la tabella sul Pil a livello provinciale (ultimo anno con dati completi: 2017)
+pil_procapite_pps_province <- label_eurostat(pil_procapite_pps_province, lang = "en", fix_duplicated=TRUE, code="geo") ## aggiungo le label mantenendo i codici Geo
+
+##IMMIGRAZIONE UE DATI TOTALI
+richiedenti_asilo_ue <- get_eurostat(id="tps00191", time_format = "date", filters = "none") %>%filter(time=="2017-01-01") #Scarico la tabella sui richiedenti asilo limitando il dato al 2017
+immigrazione_ue <- get_eurostat(id="tps00176", time_format = "date", filters = "none") %>%filter(time=="2016-01-01") #Scarico la tabella sui richiedenti asilo limitando il dato al 2016
+popolazione_straniera_ue <- get_eurostat(id="tps00178", time_format = "date", filters = "none") %>%filter(time=="2017-01-01") %>% rename(stranieri=values) %>% select(geo, stranieri) #Scarico la tabella sulla popolazione straniera
+popolazione_extracomunitaria_ue <- get_eurostat(id="migr_pop3ctb", time_format = "date", filters = "none") %>%filter(time=="2017-01-01", c_birth=="NEU28_FOR", sex=="T", age=="TOTAL") %>% rename(extracom=values) %>% select(geo, extracom) #cittadini residenti che sono nati furoi dai Paesi EU28
+
+##IMMIGRAZIONE UE DATI X AB
+options(OutDec= ",")
+popolazione_straniera_ue <- inner_join(popolazione_straniera_ue, popolazione_ue_paesi, by="geo" ) 
+popolazione_straniera_ue <- mutate(popolazione_straniera_ue, perc_stranieri=(stranieri/popolazione))
+popolazione_straniera_ue <- inner_join(popolazione_straniera_ue, popolazione_extracomunitaria_ue, by="geo" ) 
+popolazione_straniera_ue <- mutate(popolazione_straniera_ue, perc_extracom=(extracom/popolazione))
+popolazione_straniera_ue <- popolazione_straniera_ue %>% mutate_if(is.numeric, funs(round(., 3)))
+
+##SCRIVERE IL CSV
+write.csv(pil_procapite_pps_province, "pil_procapite_pps_province_1.csv", quote = FALSE) #Write a CSV file that can be copy-pasted in to Excel
+
+
+
+
+
+#Mappe per valutare su R (tutto da rivedere)
+plot(mappa_che_mi_interessa)
+
+spplot(mappa_che_mi_interessa, "values")
+# or
+lp <- get_eurostat_geospatial(output_class = "df", resolution = "60", nuts_level = "all")
+ggplot(lp, aes(x=long,y=lat,group=group,fill=STAT_LEVL_),color="white") + geom_polygon()
+
+
+mappa_richiedenti <- mappa_richiedenti %>%select(geo,values,geometry) # plot per class sf
+
+write.csv2(mappa_richiedenti,"mappa_richiedenti.csv", quote = FALSE)
+
+mappa_richiedenti %>%select(values) %>%  plot() # plot per class sf
+
+ggplot(mappa_richiedenti, aes(x=long,y=lat,group=group,fill=values),color="white") + geom_polygon()
+
+
+
+#ALTRO
+
